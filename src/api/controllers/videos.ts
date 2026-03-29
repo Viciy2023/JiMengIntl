@@ -1,6 +1,7 @@
 import _ from "lodash";
 import crypto from "crypto";
 import fs from "fs";
+import path from "path";
 
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
@@ -2000,4 +2001,368 @@ function buildMetaListFromPrompt(prompt: string, materials: Array<{ type: Seedan
   }
 
   return metaList;
+}
+
+// ========== 异步视频生成任务管理 ==========
+
+// 异步任务状态类型
+type AsyncTaskStatus = "processing" | "succeeded" | "failed";
+
+// 异步任务持久化接口（仅可序列化字段）
+interface AsyncTaskData {
+  taskId: string;
+  status: AsyncTaskStatus;
+  model: string;
+  prompt: string;
+  refreshToken: string;
+  createdAt: number;
+  updatedAt: number;
+  result?: {
+    url?: string;
+    b64_json?: string;
+    revised_prompt?: string;
+  };
+  error?: string;
+}
+
+// 运行时任务接口（含内存中的 Promise 控制器）
+interface AsyncTask extends AsyncTaskData {
+  _resolve?: (value: void) => void;
+  _promise?: Promise<void>;
+}
+
+// 任务存储目录
+const ASYNC_TASK_DIR = path.join(process.cwd(), "tmp", "async-tasks");
+
+// 内存任务映射（从文件加载后使用）
+const asyncTaskStore = new Map<string, AsyncTask>();
+
+// 当前活跃异步任务数
+let activeAsyncCount = 0;
+
+// 最大并发数
+const MAX_ASYNC_CONCURRENCY = 10;
+
+// 任务过期时间（24小时，单位毫秒）
+const TASK_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 获取任务文件路径
+ */
+function taskFilePath(taskId: string): string {
+  return path.join(ASYNC_TASK_DIR, `${taskId}.json`);
+}
+
+/**
+ * 将任务数据持久化到文件
+ */
+function saveTaskToFile(task: AsyncTask): void {
+  try {
+    const data: AsyncTaskData = {
+      taskId: task.taskId,
+      status: task.status,
+      model: task.model,
+      prompt: task.prompt,
+      refreshToken: task.refreshToken,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      result: task.result,
+      error: task.error,
+    };
+    fs.writeFileSync(taskFilePath(task.taskId), JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    logger.error(`保存任务文件失败: ${task.taskId}, ${err.message}`);
+  }
+}
+
+/**
+ * 从文件加载单个任务
+ */
+function loadTaskFromFile(filePath: string): AsyncTaskData | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw) as AsyncTaskData;
+  } catch (err) {
+    logger.error(`加载任务文件失败: ${filePath}, ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * 删除任务文件
+ */
+function deleteTaskFile(taskId: string): void {
+  try {
+    const fp = taskFilePath(taskId);
+    if (fs.existsSync(fp)) {
+      fs.unlinkSync(fp);
+    }
+  } catch (err) {
+    logger.error(`删除任务文件失败: ${taskId}, ${err.message}`);
+  }
+}
+
+/**
+ * 启动时从文件恢复所有未完成任务
+ * 恢复 processing 状态的任务并重新执行轮询
+ */
+function restoreTasksFromFiles(): void {
+  try {
+    if (!fs.existsSync(ASYNC_TASK_DIR)) {
+      fs.mkdirSync(ASYNC_TASK_DIR, { recursive: true });
+      return;
+    }
+
+    const files = fs.readdirSync(ASYNC_TASK_DIR).filter(f => f.endsWith(".json"));
+    if (files.length === 0) return;
+
+    logger.info(`发现 ${files.length} 个异步任务文件，开始恢复...`);
+
+    for (const file of files) {
+      const data = loadTaskFromFile(path.join(ASYNC_TASK_DIR, file));
+      if (!data) continue;
+
+      // 跳过已过期的任务
+      if (Date.now() - data.updatedAt > TASK_EXPIRY_MS) {
+        deleteTaskFile(data.taskId);
+        logger.info(`恢复时清理过期任务: ${data.taskId}`);
+        continue;
+      }
+
+      // 已成功/失败的任务直接加载到内存（不占用并发槽位）
+      if (data.status !== "processing") {
+        const task = data as AsyncTask;
+        asyncTaskStore.set(data.taskId, task);
+        logger.info(`恢复已完成任务: ${data.taskId}, 状态: ${data.status}`);
+        continue;
+      }
+
+      // processing 状态的任务：恢复并重启轮询
+      if (activeAsyncCount >= MAX_ASYNC_CONCURRENCY) {
+        logger.warn(`恢复任务 ${data.taskId} 跳过：并发已满 ${activeAsyncCount}/${MAX_ASYNC_CONCURRENCY}`);
+        // 仍加载到内存但不重启轮询，等有槽位时手动查询会触发
+        const task = data as AsyncTask;
+        asyncTaskStore.set(data.taskId, task);
+        continue;
+      }
+
+      const task: AsyncTask = {
+        ...data,
+        _promise: new Promise<void>((resolve) => {
+          task._resolve = resolve;
+        }),
+      };
+      asyncTaskStore.set(data.taskId, task);
+      activeAsyncCount++;
+      logger.info(`恢复并重启 processing 任务: ${data.taskId}, 当前并发: ${activeAsyncCount}/${MAX_ASYNC_CONCURRENCY}`);
+
+      // 后台重新执行轮询
+      restartPollingForTask(task);
+    }
+
+    logger.info(`任务恢复完成，当前活跃并发: ${activeAsyncCount}/${MAX_ASYNC_CONCURRENCY}`);
+  } catch (err) {
+    logger.error(`恢复任务文件出错: ${err.message}`);
+  }
+}
+
+/**
+ * 为恢复的 processing 任务重启轮询
+ * 复用 generateVideo / generateSeedanceVideo 中的轮询逻辑
+ */
+function restartPollingForTask(task: AsyncTask): void {
+  (async () => {
+    try {
+      // 因为任务已经有 historyId，需要重新走轮询流程
+      // 最可靠的方式是重新调用完整的生成函数
+      let videoUrl: string;
+      if (isSeedanceModel(task.model)) {
+        const seedanceDuration = 4; // 默认值即可，恢复时不影响轮询
+        const seedanceRatio = "4:3";
+        videoUrl = await generateSeedanceVideo(task.model, task.prompt, {
+          ratio: seedanceRatio,
+          duration: seedanceDuration,
+        }, task.refreshToken);
+      } else {
+        videoUrl = await generateVideo(task.model, task.prompt, {}, task.refreshToken);
+      }
+
+      task.status = "succeeded";
+      task.result = { url: videoUrl, revised_prompt: task.prompt };
+      task.updatedAt = Date.now();
+      saveTaskToFile(task);
+      logger.info(`恢复任务轮询成功: ${task.taskId}`);
+    } catch (error) {
+      task.status = "failed";
+      task.error = error instanceof APIException
+        ? `[${error.code}] ${error.message}`
+        : error.message || "未知错误";
+      task.updatedAt = Date.now();
+      saveTaskToFile(task);
+      logger.error(`恢复任务轮询失败: ${task.taskId}, ${task.error}`);
+    } finally {
+      activeAsyncCount--;
+      if (task._resolve) task._resolve();
+    }
+  })();
+}
+
+// 定期清理过期任务文件（每30分钟）
+setInterval(() => {
+  const now = Date.now();
+  for (const [taskId, task] of asyncTaskStore) {
+    if (now - task.updatedAt > TASK_EXPIRY_MS) {
+      asyncTaskStore.delete(taskId);
+      deleteTaskFile(taskId);
+      logger.info(`异步任务已过期清理: ${taskId}`);
+    }
+  }
+}, 30 * 60 * 1000);
+
+// 启动时恢复任务
+restoreTasksFromFiles();
+
+/**
+ * 提交异步视频生成任务
+ * 调用生成接口后立即返回 taskId，后台执行轮询等待视频生成完成
+ */
+export function submitAsyncVideoTask(
+  model: string,
+  prompt: string,
+  options: {
+    ratio?: string;
+    resolution?: string;
+    duration?: number;
+    filePaths?: string[];
+    files?: any[];
+  },
+  refreshToken: string
+): string {
+  if (activeAsyncCount >= MAX_ASYNC_CONCURRENCY) {
+    throw new APIException(
+      EX.API_REQUEST_FAILED,
+      `当前异步任务并发数已达上限 (${MAX_ASYNC_CONCURRENCY})，请稍后重试`
+    );
+  }
+
+  // 确保任务目录存在
+  if (!fs.existsSync(ASYNC_TASK_DIR)) {
+    fs.mkdirSync(ASYNC_TASK_DIR, { recursive: true });
+  }
+
+  const taskId = util.uuid();
+  const task: AsyncTask = {
+    taskId,
+    status: "processing",
+    model,
+    prompt,
+    refreshToken,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  // 创建用于查询接口阻塞等待的 Promise
+  task._promise = new Promise<void>((resolve) => {
+    task._resolve = resolve;
+  });
+
+  asyncTaskStore.set(taskId, task);
+  saveTaskToFile(task);
+  activeAsyncCount++;
+  logger.info(
+    `异步任务已创建: ${taskId}, 模型: ${model}, 当前并发: ${activeAsyncCount}/${MAX_ASYNC_CONCURRENCY}`
+  );
+
+  // 后台执行视频生成（含轮询）
+  (async () => {
+    try {
+      let videoUrl: string;
+      if (isSeedanceModel(model)) {
+        const seedanceDuration =
+          options.duration === 5 ? 4 : options.duration;
+        const seedanceRatio =
+          options.ratio === "1:1" ? "4:3" : options.ratio;
+        videoUrl = await generateSeedanceVideo(model, prompt, {
+          ratio: seedanceRatio,
+          resolution: options.resolution,
+          duration: seedanceDuration,
+          filePaths: options.filePaths,
+          files: options.files,
+        }, refreshToken);
+      } else {
+        videoUrl = await generateVideo(model, prompt, {
+          ratio: options.ratio,
+          resolution: options.resolution,
+          duration: options.duration,
+          filePaths: options.filePaths,
+          files: options.files,
+        }, refreshToken);
+      }
+
+      task.status = "succeeded";
+      task.result = {
+        url: videoUrl,
+        revised_prompt: prompt,
+      };
+      task.updatedAt = Date.now();
+      saveTaskToFile(task);
+      logger.info(`异步任务成功: ${taskId}, 视频URL: ${videoUrl}`);
+    } catch (error) {
+      task.status = "failed";
+      task.error =
+        error instanceof APIException
+          ? `[${error.code}] ${error.message}`
+          : error.message || "未知错误";
+      task.updatedAt = Date.now();
+      saveTaskToFile(task);
+      logger.error(`异步任务失败: ${taskId}, 错误: ${task.error}`);
+    } finally {
+      activeAsyncCount--;
+      // 通知查询接口任务已完成
+      if (task._resolve) {
+        task._resolve();
+      }
+    }
+  })();
+
+  return taskId;
+}
+
+/**
+ * 查询异步视频生成任务结果
+ * 如果任务仍在处理中，会阻塞等待直到任务完成（成功或失败）后返回
+ */
+export async function queryAsyncVideoTask(
+  taskId: string
+): Promise<AsyncTask> {
+  // 先从内存查找
+  let task = asyncTaskStore.get(taskId);
+
+  // 内存中没有，尝试从文件加载
+  if (!task) {
+    const fp = taskFilePath(taskId);
+    if (!fs.existsSync(fp)) {
+      throw new APIException(
+        EX.API_REQUEST_PARAMS_INVALID,
+        `任务ID不存在或已过期: ${taskId}`
+      );
+    }
+    const data = loadTaskFromFile(fp);
+    if (!data) {
+      throw new APIException(
+        EX.API_REQUEST_PARAMS_INVALID,
+        `任务数据损坏: ${taskId}`
+      );
+    }
+    task = data as AsyncTask;
+    asyncTaskStore.set(taskId, task);
+    logger.info(`从文件加载任务: ${taskId}, 状态: ${task.status}`);
+  }
+
+  // 如果任务仍在处理中，阻塞等待完成
+  if (task.status === "processing" && task._promise) {
+    logger.info(`查询接口等待任务完成: ${taskId}`);
+    await task._promise;
+  }
+
+  return task;
 }

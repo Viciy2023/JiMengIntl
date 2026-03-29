@@ -3,7 +3,7 @@
 即梦 AI 免费 API 服务 - 支持文生图、图生图、视频生成的 OpenAI 兼容接口
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-v0.8.6-green.svg)
+![Version](https://img.shields.io/badge/version-v0.8.8-green.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg)
 
@@ -45,6 +45,7 @@ Jimeng AI Free API 是一个逆向工程的 API 服务器，将即梦 AI（Jimen
 | 多图智能视频 | Seedance 2.0 多模态混合生成 | jimeng-video-seedance-2.0, seedance-2.0 | ✅ 可用 |
 | 多图快速视频 | Seedance 2.0-fast 快速生成 | jimeng-video-seedance-2.0-fast, seedance-2.0-fast | ✅ 可用 |
 | 音频驱动视频 | Seedance 图片+音频混合生成 | jimeng-video-seedance-2.0, seedance-2.0-fast | ✅ 可用 |
+| 异步视频生成 | 提交任务立即返回，查询接口阻塞等待结果 | 所有视频模型 | ✅ 可用 |
 | Chat 接口 | OpenAI 兼容的对话接口 | 所有模型 | ✅ 可用 |
 
 ## 免责声明
@@ -150,7 +151,9 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 | `/v1/chat/completions` | POST | OpenAI 兼容的对话接口 |
 | `/v1/images/generations` | POST | 文生图/图生图接口（支持 images 可选参数） |
 | `/v1/images/compositions` | POST | 图生图接口（向后兼容） |
-| `/v1/videos/generations` | POST | 视频生成接口 |
+| `/v1/videos/generations` | POST | 视频生成接口（同步，阻塞等待结果） |
+| `/v1/videos/generations/async` | POST | 异步视频生成接口（提交任务，立即返回 task_id） |
+| `/v1/videos/generations/async/:taskId` | GET | 异步视频生成接口（查询任务结果，阻塞等待） |
 | `/v1/models` | GET | 获取模型列表 |
 
 ### 快速开始
@@ -383,6 +386,119 @@ jimeng-free-api-all/
 | resolution | string | 否 | 720p | 分辨率：480p, 720p, 1080p |
 | duration | number | 否 | 5 | 时长：4-15 秒（Seedance）、5 或 10 秒（普通） |
 | file_paths | array | 否 | [] | 首帧/尾帧图片URL |
+
+### 异步视频生成接口
+
+由于即梦平台排队时间较长，同步接口可能阻塞等待 10-20 分钟。异步接口将提交和查询分离，避免长时间占用连接。
+
+#### 提交异步任务
+
+**POST /v1/videos/generations/async**
+
+请求参数与同步接口 `POST /v1/videos/generations` 完全一致，但立即返回 `task_id` 而非等待视频生成完成。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| model | string | 否 | jimeng-video-3.0 | 模型名称 |
+| prompt | string | 是 | - | 视频描述 |
+| ratio | string | 否 | 1:1 | 宽高比 |
+| resolution | string | 否 | 720p | 分辨率：480p, 720p, 1080p |
+| duration | number | 否 | 5 | 时长：4-15 秒（Seedance）、5 或 10 秒（普通） |
+| file_paths | array | 否 | [] | 首帧/尾帧/素材图片URL |
+| files | file[] | 否 | - | 上传的素材文件（multipart） |
+
+**响应示例：**
+
+```json
+{
+  "created": 1774778941,
+  "task_id": "4f2acc30-2b57-11f1-9361-e959a88411c4",
+  "status": "processing",
+  "message": "任务已提交，请使用 GET /v1/videos/generations/async/{task_id} 查询结果"
+}
+```
+
+**调用示例：**
+
+```bash
+# 提交普通视频生成任务
+curl -X POST http://localhost:8000/v1/videos/generations/async \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_sessionid" \
+  -d '{
+    "model": "jimeng-video-3.5-pro",
+    "prompt": "一只小猫在草地上奔跑",
+    "ratio": "16:9",
+    "resolution": "720p",
+    "duration": 5
+  }'
+
+# 提交 Seedance 异步任务（JSON + 图片URL）
+curl -X POST http://localhost:8000/v1/videos/generations/async \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_sessionid" \
+  -d '{
+    "model": "seedance-2.0-fast",
+    "prompt": "@1 图片中的人物开始微笑",
+    "ratio": "4:3",
+    "duration": 4,
+    "file_paths": ["https://example.com/image.jpg"]
+  }'
+
+# 提交 Seedance 异步任务（multipart 文件上传）
+curl -X POST http://localhost:8000/v1/videos/generations/async \
+  -H "Authorization: Bearer your_sessionid" \
+  -F "model=seedance-2.0" \
+  -F "prompt=@1 和 @2 两人开始跳舞" \
+  -F "ratio=4:3" \
+  -F "duration=4" \
+  -F "files=@/path/to/image1.jpg" \
+  -F "files=@/path/to/image2.jpg"
+```
+
+#### 查询异步任务结果
+
+**GET /v1/videos/generations/async/:taskId**
+
+传入提交时返回的 `task_id`，服务端会阻塞等待视频生成完成后返回结果，无需客户端轮询。
+
+**成功响应：**
+
+```json
+{
+  "created": 1774778988,
+  "task_id": "4f2acc30-2b57-11f1-9361-e959a88411c4",
+  "status": "succeeded",
+  "data": [{
+    "url": "https://v3-dreamnia.jimeng.com/.../video.mp4",
+    "revised_prompt": "一只小猫在草地上奔跑"
+  }]
+}
+```
+
+**失败响应：**
+
+```json
+{
+  "created": 1774778988,
+  "task_id": "4f2acc30-2b57-11f1-9361-e959a88411c4",
+  "status": "failed",
+  "error": "[API_IMAGE_GENERATION_FAILED] 视频生成超时"
+}
+```
+
+**调用示例：**
+
+```bash
+curl http://localhost:8000/v1/videos/generations/async/4f2acc30-2b57-11f1-9361-e959a88411c4 \
+  --header 'Authorization: Bearer your_sessionid'
+```
+
+> **注意：**
+> - 异步任务最多支持 **10 个并发**，超出限制时提交接口返回错误提示
+> - 任务数据持久化存储在 `tmp/async-tasks/` 目录，进程重启不丢失
+> - 程序启动时自动恢复未完成的 processing 任务并重新执行轮询
+> - 已完成任务 **24 小时**后自动过期清理
 
 ### Seedance 2.0 / 2.0-fast 接口
 
@@ -629,6 +745,18 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 </details>
 
 ## 更新日志
+
+### v0.8.8 (2026-03-29) - 新增异步视频生成接口
+
+- ✨ **新增异步视频生成接口**：解决即梦平台排队导致同步接口阻塞 20 分钟无法返回的问题
+  - `POST /v1/videos/generations/async` — 提交视频生成任务，立即返回 `task_id`
+  - `GET /v1/videos/generations/async/:taskId` — 查询任务结果，服务端阻塞等待视频生成完成后返回
+- ✨ **支持所有视频模型**：普通视频（jimeng-video-3.5-pro 等）和 Seedance 2.0/2.0-fast 均支持异步调用
+- ✨ **并发控制**：异步任务最多 10 个并发，超出时提交接口返回错误提示
+- 💾 **任务持久化**：任务数据保存到 `tmp/async-tasks/` 目录（JSON 文件），进程重启不丢失
+- 🔄 **启动恢复**：程序启动时自动恢复未完成的 `processing` 任务并重新执行轮询
+- ⏱️ **24 小时过期**：已完成/失败的任务 24 小时后自动清理
+- 📝 **别名路由自动可用**：`/v1/video/generations/async` 同样可用
 
 ### v0.8.7 (2026-03-22) - 新增历史 Session 强制退出工具
 

@@ -3,7 +3,7 @@ import _ from 'lodash';
 import Request from '@/lib/request/Request.ts';
 import Response from '@/lib/response/Response.ts';
 import { tokenSplit } from '@/api/controllers/core.ts';
-import { generateVideo, generateSeedanceVideo, isSeedanceModel, DEFAULT_MODEL } from '@/api/controllers/videos.ts';
+import { generateVideo, generateSeedanceVideo, isSeedanceModel, DEFAULT_MODEL, submitAsyncVideoTask, queryAsyncVideoTask } from '@/api/controllers/videos.ts';
 import util from '@/lib/util.ts';
 
 export default {
@@ -128,8 +128,112 @@ export default {
                     }]
                 };
             }
-        }
+        },
 
-    }
+        // ========== 异步视频生成接口：提交任务 ==========
+        '/generations/async': async (request: Request) => {
+            const contentType = request.headers['content-type'] || '';
+            const isMultiPart = contentType.startsWith('multipart/form-data');
+
+            request
+                .validate('body.model', v => _.isUndefined(v) || _.isString(v))
+                .validate('body.prompt', v => _.isUndefined(v) || _.isString(v))
+                .validate('body.ratio', v => _.isUndefined(v) || _.isString(v))
+                .validate('body.resolution', v => _.isUndefined(v) || _.isString(v))
+                .validate('body.duration', v => {
+                    if (_.isUndefined(v)) return true;
+                    if (isMultiPart && typeof v === 'string') {
+                        const num = parseInt(v);
+                        return (num >= 4 && num <= 15) || num === 5 || num === 10;
+                    }
+                    return _.isFinite(v) && ((v >= 4 && v <= 15) || v === 5 || v === 10);
+                })
+                .validate('body.file_paths', v => _.isUndefined(v) || _.isArray(v))
+                .validate('body.filePaths', v => _.isUndefined(v) || _.isArray(v))
+                .validate('headers.authorization', _.isString);
+
+            // refresh_token切分
+            const tokens = tokenSplit(request.headers.authorization);
+            const token = _.sample(tokens);
+
+            const {
+                model = DEFAULT_MODEL,
+                prompt,
+                ratio = "1:1",
+                resolution = "720p",
+                duration = 5,
+                file_paths = [],
+                filePaths = [],
+            } = request.body;
+
+            const finalDuration = isMultiPart && typeof duration === 'string'
+                ? parseInt(duration)
+                : duration;
+
+            const finalFilePaths = filePaths.length > 0 ? filePaths : file_paths;
+
+            // 提交异步任务，立即返回 taskId
+            const taskId = submitAsyncVideoTask(
+                model,
+                prompt,
+                {
+                    ratio,
+                    resolution,
+                    duration: finalDuration,
+                    filePaths: finalFilePaths,
+                    files: request.files,
+                },
+                token
+            );
+
+            return {
+                created: util.unixTimestamp(),
+                task_id: taskId,
+                status: "processing",
+                message: "任务已提交，请使用 GET /v1/videos/generations/async/{task_id} 查询结果",
+            };
+        },
+
+    },
+
+    get: {
+
+        // ========== 异步视频生成接口：查询结果 ==========
+        '/generations/async/:taskId': async (request: Request) => {
+            const { taskId } = request.params;
+            if (!taskId) {
+                throw new Error("缺少 task_id 参数");
+            }
+
+            const task = await queryAsyncVideoTask(taskId);
+
+            if (task.status === "succeeded") {
+                return {
+                    created: util.unixTimestamp(),
+                    task_id: task.taskId,
+                    status: "succeeded",
+                    data: [{
+                        url: task.result.url,
+                        revised_prompt: task.result.revised_prompt,
+                    }],
+                };
+            } else if (task.status === "failed") {
+                return {
+                    created: util.unixTimestamp(),
+                    task_id: task.taskId,
+                    status: "failed",
+                    error: task.error,
+                };
+            } else {
+                return {
+                    created: util.unixTimestamp(),
+                    task_id: task.taskId,
+                    status: task.status,
+                    message: "任务处理中",
+                };
+            }
+        },
+
+    },
 
 }
