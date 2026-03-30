@@ -27,7 +27,20 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git clone "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}" hf-space
-          rsync -av --delete --exclude '.git/' huggingface-HF-JiMeng/ hf-space/
+          rsync -av --delete \
+            --exclude '.git/' \
+            --exclude 'hf-space/' \
+            --exclude 'huggingface-HF-JiMeng/' \
+            --exclude 'node_modules/' \
+            --exclude 'dist/' \
+            --exclude 'capture-output/' \
+            --exclude 'Toonflow-app/' \
+            --exclude '.env' \
+            --exclude '*.log' \
+            ./ hf-space/
+          cp huggingface-HF-JiMeng/Dockerfile hf-space/Dockerfile
+          cp huggingface-HF-JiMeng/README.md hf-space/README.md
+          cp huggingface-HF-JiMeng/.dockerignore hf-space/.dockerignore
           cd hf-space
           if git status --short | grep .; then
             git add .

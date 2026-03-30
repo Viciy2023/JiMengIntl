@@ -24,7 +24,7 @@ license: mit
 - 国际版上游：`dreamina.capcut.com` / `mweb-api-sg.capcut.com` / `commerce-api-sg.capcut.com`
 - 调用方式：OpenAI 兼容，调用端只需要 `BASE_URL + API_KEY`
 
-当前目录中的 `Dockerfile` 只有一层包装，不重新安装依赖，也不重新构建源码，部署速度比源码构建更快。
+HF Space 实际会收到项目根目录源码，然后再用当前目录提供的 `Dockerfile`、`.dockerignore` 和 `README.md` 覆盖 Space 根目录对应文件，最后在 Space 中执行源码构建。
 
 ## 为什么这样能跑
 
@@ -44,14 +44,14 @@ license: mit
 
 ### 方案一：GitHub 自动推送到 HF Space
 
-适合你当前的目标：代码先推到 GitHub，再由 GitHub Actions 自动同步到 Hugging Face Space，最后由 HF 基于本目录的 `Dockerfile` 构建。
+适合你当前的目标：代码先推到 GitHub，再由 GitHub Actions 同步项目根目录源码到 Hugging Face Space，并用本目录中的 Space 专用文件覆盖根目录文件，最后由 HF 基于这些文件构建。
 
 1. 在 Hugging Face 新建一个 `Docker` 类型的 Space。
 2. 在 GitHub 仓库中添加以下 Secrets：
    - `HF_TOKEN`：你的 Hugging Face Access Token，至少需要对目标 Space 有写权限
    - `HF_SPACE_REPO`：你的 Space 仓库名，格式为 `username/space_name`
 3. 将本仓库推送到你的 GitHub 仓库：`https://github.com/Viciy2023/JiMengIntl.git`
-4. 推送 `main` 分支后，GitHub Actions 会自动把 `huggingface-HF-JiMeng` 目录同步到 HF Space。
+4. 推送 `main` 分支后，GitHub Actions 会自动把项目源码同步到 HF Space，并用 `huggingface-HF-JiMeng` 目录中的 Space 专用文件覆盖根目录对应文件。
 5. HF Space 收到更新后会自动开始构建。
 6. 构建完成后访问：`https://<你的-space>.hf.space/ping`
 
