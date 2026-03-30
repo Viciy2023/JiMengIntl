@@ -33,10 +33,18 @@ jobs:
             --exclude 'huggingface-HF-JiMeng/' \
             --exclude 'node_modules/' \
             --exclude 'dist/' \
+            --exclude 'doc/' \
             --exclude 'capture-output/' \
             --exclude 'Toonflow-app/' \
             --exclude '.env' \
             --exclude '*.log' \
+            --exclude '*.png' \
+            --exclude '*.jpg' \
+            --exclude '*.jpeg' \
+            --exclude '*.webp' \
+            --exclude '*.gif' \
+            --exclude '*.bmp' \
+            --exclude '*.mp4' \
             ./ hf-space/
           cp huggingface-HF-JiMeng/Dockerfile hf-space/Dockerfile
           cp huggingface-HF-JiMeng/README.md hf-space/README.md
