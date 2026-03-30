@@ -11,139 +11,176 @@ export default {
                     {
                         "id": "jimeng",
                         "object": "model",
-                        "owned_by": "jimeng-free-api"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 5.0 Lite"
                     },
                     {
                         "id": "jimeng-5.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 5.0 版本（最新）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 5.0 Lite"
                     },
                     {
                         "id": "jimeng-4.6",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 4.6 版本（最新）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 4.6"
                     },
                     {
                         "id": "jimeng-4.5",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 4.5 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 4.5"
                     },
                     {
                         "id": "jimeng-4.1",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 4.1 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 4.1"
                     },
                     {
                         "id": "jimeng-4.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 4.0 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 4.0"
                     },
                     {
                         "id": "jimeng-3.1",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 3.1 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 3.1"
                     },
                     {
                         "id": "jimeng-3.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 3.0 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Image 3.0"
                     },
                     {
                         "id": "jimeng-2.1",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 2.1 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Legacy Dreamina image model"
                     },
                     {
                         "id": "jimeng-2.0-pro",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 2.0 专业版"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Legacy Dreamina image model"
                     },
                     {
                         "id": "jimeng-2.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 2.0 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Legacy Dreamina image model"
                     },
                     {
                         "id": "jimeng-1.4",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 1.4 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Legacy Dreamina image model"
                     },
                     {
                         "id": "jimeng-xl-pro",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI图像生成模型 XL Pro 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Legacy Dreamina image model"
+                    },
+                    {
+                        "id": "nano-banana",
+                        "object": "model",
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Nano Banana"
                     },
                     {
                         "id": "jimeng-video-3.5-pro",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI视频生成模型 3.5 专业版"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina video model"
                     },
                     {
                         "id": "jimeng-video-3.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI视频生成模型 3.0 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina video model"
                     },
                     {
                         "id": "jimeng-video-3.0-pro",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI视频生成模型 3.0 专业版"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina video model"
                     },
                     {
                         "id": "jimeng-video-2.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI视频生成模型 2.0 版本"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina video model"
                     },
                     {
                         "id": "jimeng-video-2.0-pro",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "即梦AI视频生成模型 2.0 专业版"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina video model"
                     },
                     {
                         "id": "jimeng-video-seedance-2.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0 多图智能视频生成模型（上游标准名称，支持4-15秒，多张图片混合生成视频）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 2.0"
                     },
                     {
                         "id": "seedance-2.0",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0 多图智能视频生成模型（jimeng-video-seedance-2.0 的别名，向后兼容）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 2.0"
                     },
                     {
                         "id": "seedance-2.0-pro",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0 Pro 多图智能视频生成模型（jimeng-video-seedance-2.0 的别名，向后兼容）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 2.0"
                     },
                     {
                         "id": "jimeng-video-seedance-2.0-fast",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0-fast 快速多图智能视频生成模型（上游标准名称，支持4-15秒）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 2.0 Fast"
                     },
                     {
                         "id": "seedance-2.0-fast",
                         "object": "model",
-                        "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0-fast 快速多图智能视频生成模型（jimeng-video-seedance-2.0-fast 的别名，向后兼容）"
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 2.0 Fast"
+                    },
+                    {
+                        "id": "dreamina-seedance-1.5-pro",
+                        "object": "model",
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 1.5 Pro"
+                    },
+                    {
+                        "id": "dreamina-seedance-1.0",
+                        "object": "model",
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 1.0"
+                    },
+                    {
+                        "id": "dreamina-seedance-1.0-fast",
+                        "object": "model",
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 1.0 Fast"
+                    },
+                    {
+                        "id": "dreamina-seedance-1.0-mini",
+                        "object": "model",
+                        "owned_by": "dreamina-free-api",
+                        "description": "Dreamina Seedance 1.0 Mini"
+                    },
+                    {
+                        "id": "sora-2",
+                        "object": "model",
+                        "owned_by": "dreamina-free-api",
+                        "description": "Sora 2"
                     }
                 ]
             };

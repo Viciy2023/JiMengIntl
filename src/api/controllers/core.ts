@@ -9,9 +9,11 @@ import EX from "@/api/consts/exceptions.ts";
 import { createParser } from "eventsource-parser";
 import logger from "@/lib/logger.ts";
 import util from "@/lib/util.ts";
+import provider from "@/lib/upstream-provider.ts";
+import { findDreaminaCookieHeaderBySessionid, getDreaminaApiKey, getDreaminaSessionPool } from "@/lib/intl-account-pool.ts";
 
 // 模型名称
-const MODEL_NAME = "jimeng";
+const MODEL_NAME = provider.modelName;
 // 默认的AgentID
 export const DEFAULT_ASSISTANT_ID = 513695;
 // 版本号
@@ -32,17 +34,17 @@ const RETRY_DELAY = 5000;
 const FAKE_HEADERS = {
   Accept: "application/json, text/plain, */*",
   "Accept-Encoding": "gzip, deflate, br, zstd",
-  "Accept-language": "zh-CN,zh;q=0.9",
+  "Accept-language": provider.acceptLanguage,
   "App-Sdk-Version": "48.0.0",
   "Cache-control": "no-cache",
-  Appid: DEFAULT_ASSISTANT_ID,
+  Appid: provider.assistantId,
   Appvr: VERSION_CODE,
-  Lan: "zh-Hans",
-  Loc: "cn",
-  Origin: "https://jimeng.jianying.com",
+  Lan: provider.lan,
+  Loc: provider.loc,
+  Origin: provider.origin,
   Pragma: "no-cache",
   Priority: "u=1, i",
-  Referer: "https://jimeng.jianying.com",
+  Referer: provider.referer,
   Pf: PLATFORM_CODE,
   "Sec-Ch-Ua":
     '"Google Chrome";v="132", "Chromium";v="132", "Not_A Brand";v="8"',
@@ -56,6 +58,55 @@ const FAKE_HEADERS = {
 };
 // 文件最大大小
 const FILE_MAX_SIZE = 100 * 1024 * 1024;
+
+function resolveBaseUrlByPath(uri: string) {
+  if (uri.startsWith("/commerce/")) return provider.commerceApiBaseUrl;
+  if (uri.startsWith("/mweb/")) return provider.mwebApiBaseUrl;
+  if (uri.startsWith("/lv/") || uri.startsWith("/user/")) return provider.webApiBaseUrl;
+  if (uri.startsWith("/passport/")) return provider.pageBaseUrl;
+  return provider.baseUrl;
+}
+
+function shouldUseGlobalQueryParams(uri: string) {
+  if (uri.startsWith("/passport/")) return false;
+  if (uri.startsWith("/commerce/")) return false;
+  return true;
+}
+
+function isPassportRequest(uri: string) {
+  return uri.startsWith("/passport/") || uri.startsWith("/user/");
+}
+
+function isDreaminaPageApiRequest(uri: string) {
+  return provider.name === "dreamina-intl" && uri.startsWith("/mweb/");
+}
+
+function cookieNameFromKey(name: string) {
+  const mapped: Record<string, string> = {
+    store_idc: "store-idc",
+    cc_target_idc: "cc-target-idc",
+    tt_target_idc_sign: "tt-target-idc-sign",
+    store_country_sign: "store-country-sign",
+  };
+  return mapped[name] || name;
+}
+
+function resolveAccountCookies(refreshToken: string) {
+  const cookieHeader = provider.name === "dreamina-intl" ? findDreaminaCookieHeaderBySessionid(refreshToken)?.header : null;
+  if (!cookieHeader) return null;
+
+  const result: Record<string, string> = {};
+  for (const chunk of cookieHeader.split(";")) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx === -1) continue;
+    const key = trimmed.slice(0, idx).trim();
+    const value = trimmed.slice(idx + 1).trim();
+    result[key.replace(/-/g, "_")] = value;
+  }
+  return result;
+}
 
 /**
  * 获取缓存中的access_token
@@ -72,37 +123,77 @@ export async function acquireToken(refreshToken: string): Promise<string> {
  * 生成cookie
  */
 export function generateCookie(refreshToken: string) {
-  return [
-    `_tea_web_id=${WEB_ID}`,
+  const account = resolveAccountCookies(refreshToken);
+  if (provider.name === "dreamina-intl" && account) {
+    return Object.entries(account)
+      .map(([name, value]) => `${cookieNameFromKey(name)}=${value}`)
+      .join("; ");
+  }
+
+  const extraCookies = account || provider.extraCookies || {};
+  const teaWebId = extraCookies?.tea_web_id || String(WEB_ID);
+  const uidTt = extraCookies?.uid_tt || USER_ID;
+  const uidTtSs = extraCookies?.uid_tt_ss || USER_ID;
+  const sidGuard = extraCookies?.sid_guard || `${refreshToken}%7C${util.unixTimestamp()}%7C5184000%7CMon%2C+03-Feb-2025+08%3A17%3A09+GMT`;
+  const cookies = [
+    `_tea_web_id=${teaWebId}`,
     `is_staff_user=false`,
-    `store-region=cn-gd`,
-    `store-region-src=uid`,
-    `sid_guard=${refreshToken}%7C${util.unixTimestamp()}%7C5184000%7CMon%2C+03-Feb-2025+08%3A17%3A09+GMT`,
-    `uid_tt=${USER_ID}`,
-    `uid_tt_ss=${USER_ID}`,
+    `${provider.storeRegionKey}=${provider.storeRegionValue}`,
+    `${provider.storeRegionSrcKey}=${provider.storeRegionSrcValue}`,
+    `sid_guard=${sidGuard}`,
+    `uid_tt=${uidTt}`,
+    `uid_tt_ss=${uidTtSs}`,
     `sid_tt=${refreshToken}`,
     `sessionid=${refreshToken}`,
     `sessionid_ss=${refreshToken}`,
     `sid_tt=${refreshToken}`
-  ].join("; ");
+  ];
+
+  for (const [name, value] of Object.entries(extraCookies || {})) {
+    if (value) cookies.push(`${cookieNameFromKey(name)}=${value}`);
+  }
+
+  return cookies.join("; ");
 }
 
 /**
  * 获取浏览器格式的cookie数组（用于Playwright context.addCookies）
  */
 export function getCookiesForBrowser(refreshToken: string) {
-  const domain = ".jianying.com";
-  return [
-    { name: "_tea_web_id", value: String(WEB_ID), domain, path: "/" },
+  const domain = provider.cookieDomain;
+  const account = resolveAccountCookies(refreshToken);
+  if (provider.name === "dreamina-intl" && account) {
+    return Object.entries(account).map(([name, value]) => ({
+      name: cookieNameFromKey(name),
+      value,
+      domain,
+      path: "/",
+    }));
+  }
+
+  const extraCookies = account || provider.extraCookies || {};
+  const teaWebId = extraCookies?.tea_web_id || String(WEB_ID);
+  const uidTt = extraCookies?.uid_tt || USER_ID;
+  const uidTtSs = extraCookies?.uid_tt_ss || USER_ID;
+  const sidGuard = extraCookies?.sid_guard || `${refreshToken}%7C${util.unixTimestamp()}%7C5184000%7CMon%2C+03-Feb-2025+08%3A17%3A09+GMT`;
+  const cookies = [
+    { name: "_tea_web_id", value: teaWebId, domain, path: "/" },
     { name: "is_staff_user", value: "false", domain, path: "/" },
-    { name: "store-region", value: "cn-gd", domain, path: "/" },
-    { name: "store-region-src", value: "uid", domain, path: "/" },
-    { name: "uid_tt", value: USER_ID, domain, path: "/" },
-    { name: "uid_tt_ss", value: USER_ID, domain, path: "/" },
+    { name: provider.storeRegionKey, value: provider.storeRegionValue, domain, path: "/" },
+    { name: provider.storeRegionSrcKey, value: provider.storeRegionSrcValue, domain, path: "/" },
+    { name: "sid_guard", value: sidGuard, domain, path: "/" },
+    { name: "uid_tt", value: uidTt, domain, path: "/" },
+    { name: "uid_tt_ss", value: uidTtSs, domain, path: "/" },
     { name: "sid_tt", value: refreshToken, domain, path: "/" },
     { name: "sessionid", value: refreshToken, domain, path: "/" },
     { name: "sessionid_ss", value: refreshToken, domain, path: "/" },
   ];
+
+  for (const [name, value] of Object.entries(extraCookies || {})) {
+    if (value) cookies.push({ name: cookieNameFromKey(name), value, domain, path: "/" });
+  }
+
+  return cookies;
 }
 
 /**
@@ -111,24 +202,50 @@ export function getCookiesForBrowser(refreshToken: string) {
  * @param refreshToken 用于刷新access_token的refresh_token
  */
 export async function getCredit(refreshToken: string) {
-  const {
-    credit: { gift_credit, purchase_credit, vip_credit }
-  } = await request("POST", "/commerce/v1/benefits/user_credit", refreshToken, {
-    data: {},
-    headers: {
-      // Cookie: 'x-web-secsdk-uid=ef44bd0d-0cf6-448c-b517-fd1b5a7267ba; s_v_web_id=verify_m4b1lhlu_DI8qKRlD_7mJJ_4eqx_9shQ_s8eS2QLAbc4n; passport_csrf_token=86f3619c0c4a9c13f24117f71dc18524; passport_csrf_token_default=86f3619c0c4a9c13f24117f71dc18524; n_mh=9-mIeuD4wZnlYrrOvfzG3MuT6aQmCUtmr8FxV8Kl8xY; sid_guard=aabbddddddddddddddd%7C1733386629%7C5184000%7CMon%2C+03-Feb-2025+08%3A17%3A09+GMT; uid_tt=59a46c7d3f34bda9588b93590cca2e12; uid_tt_ss=59a46c7d3f34bda9588b93590cca2e12; sid_tt=aabbddddddddddddddd; sessionid=aabbddddddddddddddd; sessionid_ss=aabbddddddddddddddd; is_staff_user=false; sid_ucp_v1=1.0.0-KGRiOGY2ODQyNWU1OTk3NzRhYTE2ZmZhYmFjNjdmYjY3NzRmZGRiZTgKHgjToPCw0cwbEIXDxboGGJ-tHyAMMITDxboGOAhAJhoCaGwiIGE3ZWI3NDVhZWM0NGJiMzE4NmRiYzIwODNlYTllMWE2; ssid_ucp_v1=1.0.0-KGRiOGY2ODQyNWU1OTk3NzRhYTE2ZmZhYmFjNjdmYjY3NzRmZGRiZTgKHgjToPCw0cwbEIXDxboGGJ-tHyAMMITDxboGOAhAJhoCaGwiIGE3ZWI3NDVhZWM0NGJiMzE4NmRiYzIwODNlYTllMWE2; store-region=cn-gd; store-region-src=uid; user_spaces_idc={"7444764277623653426":"lf"}; ttwid=1|cxHJViEev1mfkjntdMziir8SwbU8uPNVSaeh9QpEUs8|1733966961|d8d52f5f56607427691be4ac44253f7870a34d25dd05a01b4d89b8a7c5ea82ad; _tea_web_id=7444838473275573797; fpk1=fa6c6a4d9ba074b90003896f36b6960066521c1faec6a60bdcb69ec8ddf85e8360b4c0704412848ec582b2abca73d57a; odin_tt=efe9dc150207879b88509e651a1c4af4e7ffb4cfcb522425a75bd72fbf894eda570bbf7ffb551c8b1de0aa2bfa0bd1be6c4157411ecdcf4464fcaf8dd6657d66',
-      Referer: "https://jimeng.jianying.com/ai-tool/image/generate",
-      // "Device-Time": 1733966964,
-      // Sign: "f3dbb824b378abea7c03cbb152b3a365"
+  const candidateRequests = [
+    { path: provider.creditPath || "/commerce/v1/benefits/user_credit", method: provider.creditMethod || "POST", params: {} },
+    ...(provider.creditFallbackPaths || []),
+  ];
+
+  let lastResult: any = null;
+  for (const candidate of candidateRequests) {
+    try {
+      lastResult = await request(candidate.method, candidate.path, refreshToken, {
+        params: candidate.params || {},
+        data: candidate.method === "POST" ? {} : undefined,
+        headers: {
+          Referer: provider.pageBaseUrl + "/",
+        }
+      });
+      if (typeof lastResult === "string" && /<html|<!doctype html/i.test(lastResult)) {
+        throw new Error("积分接口返回 HTML 页面");
+      }
+      const benefitMap = lastResult?.benefit_map || lastResult?.benefits || lastResult?.data?.benefits || null;
+      const strategy = lastResult?.strategy || lastResult?.data?.strategy || null;
+      const responseData = typeof lastResult?.response === "string"
+        ? JSON.parse(lastResult.response)
+        : lastResult?.response;
+      logger.info(`国际版积分返回: ${JSON.stringify(lastResult).slice(0, 800)}`);
+      const credit = lastResult?.data?.credit || responseData?.credit || lastResult?.credit || lastResult?.points || strategy || benefitMap || lastResult;
+      const gift_credit = credit?.gift_credit ?? credit?.giftCredit ?? credit?.gift ?? credit?.gift_balance ?? credit?.free_credit ?? 0;
+      const purchase_credit = credit?.purchase_credit ?? credit?.purchaseCredit ?? credit?.purchase ?? credit?.purchase_balance ?? credit?.paid_credit ?? 0;
+      const vip_credit = credit?.vip_credit ?? credit?.vipCredit ?? credit?.vip ?? credit?.vip_balance ?? 0;
+      if (gift_credit === 0 && purchase_credit === 0 && vip_credit === 0 && !benefitMap && !strategy && !credit) {
+        throw new Error(`未识别的积分响应结构: ${JSON.stringify(lastResult).slice(0, 300)}`);
+      }
+      logger.info(`\n积分信息: \n赠送积分: ${gift_credit}, 购买积分: ${purchase_credit}, VIP积分: ${vip_credit}`);
+      return {
+        giftCredit: gift_credit,
+        purchaseCredit: purchase_credit,
+        vipCredit: vip_credit,
+        totalCredit: gift_credit + purchase_credit + vip_credit,
+      };
+    } catch (err) {
+      logger.warn(`积分接口尝试失败: ${candidate.method} ${candidate.path} -> ${(err as Error).message}`);
     }
-  });
-  logger.info(`\n积分信息: \n赠送积分: ${gift_credit}, 购买积分: ${purchase_credit}, VIP积分: ${vip_credit}`);
-  return {
-    giftCredit: gift_credit,
-    purchaseCredit: purchase_credit,
-    vipCredit: vip_credit,
-    totalCredit: gift_credit + purchase_credit + vip_credit
   }
+
+  throw new APIException(EX.API_REQUEST_FAILED, `获取积分失败: ${JSON.stringify(lastResult)}`);
 }
 
 /**
@@ -143,7 +260,7 @@ export async function receiveCredit(refreshToken: string) {
       time_zone: "Asia/Shanghai"
     },
     headers: {
-      Referer: "https://jimeng.jianying.com/ai-tool/image/generate"
+      Referer: provider.imageReferer
     }
   });
   logger.info(`\n今日${receive_quota}积分收取成功\n剩余积分: ${cur_total_credits}`);
@@ -170,27 +287,60 @@ export async function request(
     `9e2c|${uri.slice(-7)}|${PLATFORM_CODE}|${VERSION_CODE}|${deviceTime}||11ac`
   );
   
-  const fullUrl = `https://jimeng.jianying.com${uri}`;
-  const requestParams = {
-    aid: DEFAULT_ASSISTANT_ID,
-    device_platform: "web",
-    region: "cn",
-    webId: WEB_ID,
-    da_version: "3.3.2",
-    web_component_open_flag: 1,
-    web_version: "7.5.0",
-    aigc_features: "app_lip_sync",
-    ...(options.params || {}),
-  };
+  const fullUrl = `${resolveBaseUrlByPath(uri)}${uri}`;
+  const requestParams = shouldUseGlobalQueryParams(uri)
+    ? {
+        aid: provider.assistantId,
+        device_platform: "web",
+        region: provider.region,
+        webId: provider.extraCookies?.tea_web_id || WEB_ID,
+        da_version: "3.3.12",
+        web_component_open_flag: 1,
+        web_version: "7.5.0",
+        aigc_features: "app_lip_sync",
+        os: "windows",
+        commerce_with_input_video: 1,
+        msToken: provider.extraCookies?.msToken,
+        ...(options.params || {}),
+      }
+    : {
+        ...(options.params || {}),
+      };
   
-  const headers = {
-    ...FAKE_HEADERS,
-    Cookie: generateCookie(token),
-    "Device-Time": deviceTime,
-    Sign: sign,
-    "Sign-Ver": "1",
-    ...(options.headers || {}),
-  };
+  const headers = isPassportRequest(uri)
+    ? {
+        Accept: "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-language": provider.acceptLanguage,
+        Origin: provider.origin,
+        Referer: provider.generateImageReferer,
+        "User-Agent": FAKE_HEADERS["User-Agent"],
+        Cookie: generateCookie(token),
+        "x-tt-passport-csrf-token": provider.extraCookies?.passport_csrf_token || "",
+        ...(options.headers || {}),
+      }
+    : isDreaminaPageApiRequest(uri)
+    ? {
+        Accept: "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-language": provider.acceptLanguage,
+        Origin: provider.origin,
+        Referer: provider.generateImageReferer,
+        "User-Agent": FAKE_HEADERS["User-Agent"],
+        Cookie: generateCookie(token),
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        ...(options.headers || {}),
+      }
+    : {
+        ...FAKE_HEADERS,
+        Cookie: generateCookie(token),
+        "Device-Time": deviceTime,
+        Sign: sign,
+        "Sign-Ver": "1",
+        ...(options.headers || {}),
+      };
   
   logger.info(`发送请求: ${method.toUpperCase()} ${fullUrl}`);
   logger.info(`请求参数: ${JSON.stringify(requestParams)}`);
@@ -432,27 +582,48 @@ export function checkResult(result: AxiosResponse) {
  * @param authorization 认证字符串
  */
 export function tokenSplit(authorization: string) {
-  return authorization.replace("Bearer ", "").split(",");
+  const token = authorization.replace("Bearer ", "").trim();
+  const apiKey = getDreaminaApiKey();
+  if (provider.name === "dreamina-intl" && apiKey && token === apiKey) {
+    const pool = getDreaminaSessionPool();
+    if (pool.length === 0)
+      throw new APIException(EX.API_REQUEST_FAILED, "未配置国际版账号池 DREAMINA_COOKIE_POOL 或 DREAMINA_SESSIONIDS");
+    return pool;
+  }
+  return token.split(",");
 }
 
 /**
  * 获取Token存活状态
  */
 export async function getTokenLiveStatus(refreshToken: string) {
-  const result = await request(
-    "POST",
-    "/passport/account/info/v2",
-    refreshToken,
-    {
-      params: {
-        account_sdk_source: "web",
-      },
+  const candidateRequests = [
+    { path: provider.userInfoPath, method: provider.userInfoMethod, params: provider.userInfoParams || {} },
+    ...(provider.userInfoFallbackPaths || []),
+  ];
+
+  for (const candidate of candidateRequests) {
+    try {
+      const result = await request(candidate.method, candidate.path, refreshToken, {
+        params: provider.name === "dreamina-intl"
+          ? {
+              aid: provider.assistantId,
+              account_sdk_source: "web",
+              sdk_version: "2.1.10-tiktok",
+              language: provider.lan,
+              verifyFp: provider.extraCookies?.s_v_web_id || undefined,
+              ...(candidate.params || {}),
+            }
+          : (candidate.params || {}),
+      });
+      const user = result?.data || result?.userInfo || result?.user_info || result;
+      if (user?.user_id || user?.uid || user?.id || user?.user_id_str || user?.sec_user_id) {
+        return true;
+      }
+    } catch (err) {
+      logger.warn(`用户信息接口尝试失败: ${candidate.method} ${candidate.path} -> ${(err as Error).message}`);
     }
-  );
-  try {
-    const { user_id } = checkResult(result);
-    return !!user_id;
-  } catch (err) {
-    return false;
   }
+
+  return false;
 }

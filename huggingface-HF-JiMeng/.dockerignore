@@ -7,8 +7,7 @@ dist
 tmp
 logs
 doc
-scripts
-src
-configs
-README.md
 LICENSE
+.history
+capture-output
+intl-*.log

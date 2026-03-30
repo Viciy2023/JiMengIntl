@@ -1,14 +1,11 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright-core";
+import fs from "fs";
 import logger from "@/lib/logger.ts";
 import { getCookiesForBrowser } from "@/api/controllers/core.ts";
+import provider from "@/lib/upstream-provider.ts";
 
 // bdms SDK 相关脚本的白名单域名
-const SCRIPT_WHITELIST_DOMAINS = [
-  "vlabstatic.com",
-  "bytescm.com",
-  "jianying.com",
-  "byteimg.com",
-];
+const SCRIPT_WHITELIST_DOMAINS = provider.browserScriptWhitelistDomains;
 
 // 需要屏蔽的资源类型（加速加载、减少内存）
 const BLOCKED_RESOURCE_TYPES = ["image", "font", "stylesheet", "media"];
@@ -31,6 +28,19 @@ class BrowserService {
   private sessions: Map<string, BrowserSession> = new Map();
   private launching: Promise<Browser> | null = null;
 
+  private findExistingBrowserPath(): string | undefined {
+    const candidates = [
+      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+      "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+      "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+      "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    ].filter(Boolean) as string[];
+
+    return candidates.find((candidate) => fs.existsSync(candidate));
+  }
+
   /**
    * 懒启动浏览器实例
    */
@@ -47,8 +57,10 @@ class BrowserService {
     this.launching = (async () => {
       logger.info("BrowserService: 正在启动 Chromium 浏览器...");
       try {
+        const executablePath = this.findExistingBrowserPath() || "C:/Program Files/Google/Chrome/Application/chrome.exe";
         this.browser = await chromium.launch({
           headless: true,
+          executablePath,
           args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
@@ -106,7 +118,7 @@ class BrowserService {
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
       viewport: { width: 1920, height: 1080 },
-      locale: "zh-CN",
+      locale: provider.browserLocale,
     });
 
     // 注入 cookies
@@ -140,8 +152,8 @@ class BrowserService {
     const page = await context.newPage();
 
     // 导航到即梦页面，让 bdms SDK 加载
-    logger.info("BrowserService: 正在导航到 jimeng.jianying.com ...");
-    await page.goto("https://jimeng.jianying.com", {
+    logger.info(`BrowserService: 正在导航到 ${provider.browserEntryUrl} ...`);
+    await page.goto(provider.browserEntryUrl, {
       waitUntil: "domcontentloaded",
       timeout: 30000,
     });

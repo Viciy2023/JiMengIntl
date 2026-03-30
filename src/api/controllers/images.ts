@@ -7,9 +7,10 @@ import util from "@/lib/util.ts";
 import { getCredit, receiveCredit, request } from "./core.ts";
 import logger from "@/lib/logger.ts";
 import { getModelConfig } from "@/lib/configs/model-config.ts";
+import provider from "@/lib/upstream-provider.ts";
 
-const DEFAULT_ASSISTANT_ID = 513695;
-export const DEFAULT_MODEL = "jimeng-4.5";
+const DEFAULT_ASSISTANT_ID = provider.assistantId;
+export const DEFAULT_MODEL = "jimeng-4.6";
 const DRAFT_VERSION = "3.3.4";
 const DRAFT_MIN_VERSION = "3.0.2";
 
@@ -102,8 +103,27 @@ function getDraftVersion(model: string): string {
     return MODEL_DRAFT_VERSIONS[model] || DRAFT_VERSION;
   }
 }
+
+function getSceneModelKey(model: string): string {
+  if (provider.name === "dreamina-intl") {
+    if (model === "jimeng" || model === "jimeng-5.0" || model === "jimeng-5.0-preview") return "high_aes_general_v50";
+    if (model === "jimeng-4.6") return "high_aes_general_v42";
+    if (model === "jimeng-4.5") return "high_aes_general_v40l";
+    if (model === "jimeng-4.1") return "high_aes_general_v41";
+    if (model === "jimeng-4.0") return "high_aes_general_v40";
+    if (model === "jimeng-3.1") return "high_aes_general_v30l_art:general_v3.0_18b";
+    if (model === "jimeng-3.0") return "high_aes_general_v30l:general_v3.0_18b";
+  }
+  return model;
+}
+
+function getImageSceneName() {
+  return provider.name === "dreamina-intl" ? "default_scene" : "ImageBasicGenerate";
+}
 const MODEL_MAP = {
+  "jimeng": "high_aes_general_v50",
   "jimeng-5.0": "high_aes_general_v50",
+  "jimeng-5.0-preview": "high_aes_general_v50",
   "jimeng-4.6": "high_aes_general_v42",
   "jimeng-4.5": "high_aes_general_v40l",
   "jimeng-4.1": "high_aes_general_v41",
@@ -146,7 +166,7 @@ function createSignature(
   // 创建规范请求
   const timestamp = headers['x-amz-date'];
   const date = timestamp.substr(0, 8);
-  const region = 'cn-north-1';
+  const region = provider.imageAwsRegion;
   const service = 'imagex';
   
   // 规范化查询参数 - 手动处理以确保正确的顺序
@@ -327,10 +347,10 @@ async function uploadImageFromUrl(imageUrl: string, refreshToken: string): Promi
       method: 'GET',
       headers: {
         'accept': '*/*',
-        'accept-language': 'zh-CN,zh;q=0.9',
+        'accept-language': provider.acceptLanguage,
         'authorization': authorization,
-        'origin': 'https://jimeng.jianying.com',
-        'referer': 'https://jimeng.jianying.com/ai-tool/generate',
+        'origin': provider.origin,
+        'referer': provider.generateImageReferer,
         'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -380,14 +400,14 @@ async function uploadImageFromUrl(imageUrl: string, refreshToken: string): Promi
       method: 'POST',
       headers: {
         'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Accept-Language': provider.acceptLanguage,
         'Authorization': auth,
         'Connection': 'keep-alive',
         'Content-CRC32': crc32,
         'Content-Disposition': 'attachment; filename="undefined"',
         'Content-Type': 'application/octet-stream',
-        'Origin': 'https://jimeng.jianying.com',
-        'Referer': 'https://jimeng.jianying.com/ai-tool/generate',
+        'Origin': provider.origin,
+        'Referer': provider.generateImageReferer,
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'cross-site',
@@ -430,11 +450,11 @@ async function uploadImageFromUrl(imageUrl: string, refreshToken: string): Promi
       method: 'POST',
       headers: {
         'accept': '*/*',
-        'accept-language': 'zh-CN,zh;q=0.9',
+        'accept-language': provider.acceptLanguage,
         'authorization': commitAuthorization,
         'content-type': 'application/json',
-        'origin': 'https://jimeng.jianying.com',
-        'referer': 'https://jimeng.jianying.com/ai-tool/generate',
+        'origin': provider.origin,
+        'referer': provider.generateImageReferer,
         'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -624,14 +644,14 @@ export async function generateImageComposition(
   // 注意：sceneOptions 需要是对象，在 metrics_extra 中会被 JSON.stringify
   const sceneOption = {
     type: "image",
-    scene: "ImageBasicGenerate",
-    modelReqKey: _model,
+      scene: getImageSceneName(),
+      modelReqKey: getSceneModelKey(_model),
     resolutionType,
     abilityList: uploadedImageIds.map(() => ({
       abilityName: "byte_edit",
       strength: sampleStrength,
       source: {
-        imageUrl: `blob:https://jimeng.jianying.com/${util.uuid()}`
+        imageUrl: `blob:${provider.pageBaseUrl}/${util.uuid()}`
       }
     })),
     reportParams: {
@@ -642,9 +662,9 @@ export async function generateImageComposition(
     },
   };
 
-  const { aigc_data } = await request(
+  const generateResult = await request(
     "post",
-    "/mweb/v1/aigc_draft/generate",
+    provider.imageGeneratePath,
     refreshToken,
     {
       data: {
@@ -926,8 +946,8 @@ async function generateMultiImages(
   // 构建多图模式的 sceneOptions（不包含 benefitCount 以避免扣积分）
   const sceneOption = {
     type: "image",
-    scene: "ImageMultiGenerate",
-    modelReqKey: _model,
+      scene: getImageSceneName(),
+      modelReqKey: getSceneModelKey(_model),
     resolutionType,
     abilityList: [],
     reportParams: {
@@ -938,9 +958,9 @@ async function generateMultiImages(
     },
   };
 
-  const { aigc_data } = await request(
+  const generateResult = await request(
     "post",
-    "/mweb/v1/aigc_draft/generate",
+      provider.imageGeneratePath,
     refreshToken,
     {
       data: {
@@ -966,7 +986,7 @@ async function generateMultiImages(
           min_version: DRAFT_MIN_VERSION,
           min_features: [],
           is_from_tsn: true,
-          version: DRAFT_VERSION,
+          version: draftVersion,
           main_component_id: componentId,
           component_list: [
             {
@@ -1196,7 +1216,7 @@ export async function generateImages(
 
 
   const { totalCredit } = await getCredit(refreshToken);
-  if (totalCredit <= 0)
+  if (provider.name === "jimeng-cn" && totalCredit <= 0)
     await receiveCredit(refreshToken);
 
   // 检测是否为多图生成请求
@@ -1218,8 +1238,8 @@ export async function generateImages(
   // 构建 sceneOptions 用于 metrics_extra（不包含 benefitCount 以避免扣积分）
   const sceneOption = {
     type: "image",
-    scene: "ImageBasicGenerate",
-    modelReqKey: _model,
+      scene: getImageSceneName(),
+      modelReqKey: getSceneModelKey(_model),
     resolutionType,
     abilityList: [],
     reportParams: {
@@ -1230,9 +1250,9 @@ export async function generateImages(
     },
   };
 
-  const { aigc_data } = await request(
+  const generateResult = await request(
     "post",
-    "/mweb/v1/aigc_draft/generate",
+      provider.imageGeneratePath,
     refreshToken,
     {
       data: {
@@ -1254,7 +1274,7 @@ export async function generateImages(
           min_version: DRAFT_MIN_VERSION,
           min_features: [],
           is_from_tsn: true,
-          version: DRAFT_VERSION,
+          version: getDraftVersion(_model),
           main_component_id: componentId,
           component_list: [
             {
@@ -1312,9 +1332,12 @@ export async function generateImages(
       },
     }
   );
-  const historyId = aigc_data.history_record_id;
+  const aigc_data = generateResult?.aigc_data || generateResult?.data?.aigc_data || generateResult?.data || generateResult;
+  logger.info(`国际版图片生成返回: ${JSON.stringify(generateResult).slice(0, 1500)}`);
+  const historyId = aigc_data?.history_record_id || aigc_data?.historyId || aigc_data?.record_id || aigc_data?.id;
+  const pollId = submitId;
   if (!historyId)
-    throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "记录ID不存在");
+    throw new APIException(EX.API_IMAGE_GENERATION_FAILED, `记录ID不存在，国际版返回: ${JSON.stringify(generateResult).slice(0, 800)}`);
 
   logger.info(`文生图任务已提交，submit_id: ${submitId}, history_id: ${historyId}，等待生成完成...`);
 
@@ -1332,7 +1355,7 @@ export async function generateImages(
 
     const result = await request("post", "/mweb/v1/get_history_by_ids", refreshToken, {
       data: {
-        history_ids: [historyId],
+        ...(provider.name === "dreamina-intl" ? { submit_ids: [pollId] } : { history_ids: [historyId] }),
         image_info: {
           width: 2048,
           height: 2048,
@@ -1429,12 +1452,13 @@ export async function generateImages(
         },
       },
     });
-    if (!result[historyId])
+    const resultKey = provider.name === "dreamina-intl" ? pollId : historyId;
+    if (!result[resultKey])
       throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "记录不存在");
 
-    status = result[historyId].status;
-    failCode = result[historyId].fail_code;
-    item_list = result[historyId].item_list || [];
+    status = result[resultKey].status;
+    failCode = result[resultKey].fail_code;
+    item_list = result[resultKey].item_list || [];
 
     // 检查是否已生成图片
     if (item_list.length > 0) {

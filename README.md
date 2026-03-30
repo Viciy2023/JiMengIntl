@@ -1,5 +1,39 @@
 # Jimeng AI Free API
 
+### 国际版多账号环境变量
+
+国际版建议通过完整 Cookie Header 注入账号池，并使用固定 API Key 调用：
+
+```bash
+DREAMINA_API_KEY=sk-123456......
+```
+
+推荐用多账号完整 Cookie Header：
+
+```json
+DREAMINA_COOKIE_HEADERS=[
+  "_tea_web_id=...; capcut_locale=en; ...; sessionid=sid1; sessionid_ss=sid1; sid_tt=sid1; ...",
+  "_tea_web_id=...; capcut_locale=en; ...; sessionid=sid2; sessionid_ss=sid2; sid_tt=sid2; ..."
+]
+```
+
+单账号也可以直接用：
+
+```bash
+DREAMINA_COOKIE_HEADER=_tea_web_id=...; capcut_locale=en; ...; sessionid=sid1; sessionid_ss=sid1; sid_tt=sid1; ...
+```
+
+调用方式：
+
+```bash
+BASE_URL=https://jimeng-intl.xxx/v1
+API_KEY=123456.......
+```
+
+服务端会在每次请求时随机选择一套国际版账号 cookie 使用。
+
+
+
 即梦 AI 免费 API 服务 - 支持文生图、图生图、视频生成的 OpenAI 兼容接口
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)

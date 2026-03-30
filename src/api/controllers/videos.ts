@@ -9,12 +9,18 @@ import util from "@/lib/util.ts";
 import { getCredit, receiveCredit, request, DEFAULT_ASSISTANT_ID as CORE_ASSISTANT_ID, WEB_ID, acquireToken } from "./core.ts";
 import logger from "@/lib/logger.ts";
 import browserService from "@/lib/browser-service.ts";
+import provider from "@/lib/upstream-provider.ts";
 
-const DEFAULT_ASSISTANT_ID = 513695;
-export const DEFAULT_MODEL = "jimeng-video-3.0";
+function createRequestSign(uri: string, deviceTime: number) {
+  return util.md5(`9e2c|${uri.slice(-7)}|7|8.4.0|${deviceTime}||11ac`);
+}
+
+const DEFAULT_ASSISTANT_ID = provider.assistantId;
+export const DEFAULT_MODEL = "dreamina_ic_generate_video_model_vgfm_3.0_fast";
 const DEFAULT_DRAFT_VERSION = "3.2.8";
 
 const MODEL_DRAFT_VERSIONS: { [key: string]: string } = {
+  "dreamina_ic_generate_video_model_vgfm_3.0_fast": "3.3.12",
   "jimeng-video-3.5-pro": "3.3.4",
   "jimeng-video-3.0-pro": "3.2.8",
   "jimeng-video-3.0": "3.2.8",
@@ -30,6 +36,7 @@ const MODEL_DRAFT_VERSIONS: { [key: string]: string } = {
 };
 
 const MODEL_MAP = {
+  "dreamina_ic_generate_video_model_vgfm_3.0_fast": "dreamina_ic_generate_video_model_vgfm_3.0_fast",
   "jimeng-video-3.5-pro": "dreamina_ic_generate_video_model_vgfm_3.5_pro",
   "jimeng-video-3.0-pro": "dreamina_ic_generate_video_model_vgfm_3.0_pro",
   "jimeng-video-3.0": "dreamina_ic_generate_video_model_vgfm_3.0",
@@ -202,7 +209,7 @@ function createSignature(
   secretAccessKey: string,
   sessionToken?: string,
   payload: string = '',
-  awsRegion: string = 'cn-north-1',
+  awsRegion: string = provider.imageAwsRegion,
   serviceName: string = 'imagex'
 ) {
   const urlObj = new URL(url);
@@ -357,10 +364,10 @@ async function uploadImageForVideo(imageUrl: string, refreshToken: string): Prom
       method: 'GET',
       headers: {
         'accept': '*/*',
-        'accept-language': 'zh-CN,zh;q=0.9',
+        'accept-language': provider.acceptLanguage,
         'authorization': authorization,
-        'origin': 'https://jimeng.jianying.com',
-        'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'origin': provider.origin,
+        'referer': provider.generateVideoReferer,
         'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -406,14 +413,14 @@ async function uploadImageForVideo(imageUrl: string, refreshToken: string): Prom
       method: 'POST',
       headers: {
         'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Accept-Language': provider.acceptLanguage,
         'Authorization': auth,
         'Connection': 'keep-alive',
         'Content-CRC32': crc32,
         'Content-Disposition': 'attachment; filename="undefined"',
         'Content-Type': 'application/octet-stream',
-        'Origin': 'https://jimeng.jianying.com',
-        'Referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'Origin': provider.origin,
+        'Referer': provider.generateVideoReferer,
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'cross-site',
@@ -453,11 +460,11 @@ async function uploadImageForVideo(imageUrl: string, refreshToken: string): Prom
       method: 'POST',
       headers: {
         'accept': '*/*',
-        'accept-language': 'zh-CN,zh;q=0.9',
+        'accept-language': provider.acceptLanguage,
         'authorization': commitAuthorization,
         'content-type': 'application/json',
-        'origin': 'https://jimeng.jianying.com',
-        'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'origin': provider.origin,
+        'referer': provider.generateVideoReferer,
         'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -553,10 +560,10 @@ async function uploadImageBufferForVideo(buffer: Buffer, refreshToken: string): 
       method: 'GET',
       headers: {
         'accept': '*/*',
-        'accept-language': 'zh-CN,zh;q=0.9',
+        'accept-language': provider.acceptLanguage,
         'authorization': authorization,
-        'origin': 'https://jimeng.jianying.com',
-        'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'origin': provider.origin,
+        'referer': provider.generateVideoReferer,
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
         'x-amz-date': timestamp,
         'x-amz-security-token': session_token,
@@ -594,8 +601,8 @@ async function uploadImageBufferForVideo(buffer: Buffer, refreshToken: string): 
         'Content-CRC32': crc32,
         'Content-Disposition': 'attachment; filename="undefined"',
         'Content-Type': 'application/octet-stream',
-        'Origin': 'https://jimeng.jianying.com',
-        'Referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'Origin': provider.origin,
+        'Referer': provider.generateVideoReferer,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
       },
       body: buffer,
@@ -633,8 +640,8 @@ async function uploadImageBufferForVideo(buffer: Buffer, refreshToken: string): 
         'accept': '*/*',
         'authorization': commitAuthorization,
         'content-type': 'application/json',
-        'origin': 'https://jimeng.jianying.com',
-        'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'origin': provider.origin,
+        'referer': provider.generateVideoReferer,
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
         'x-amz-date': commitTimestamp,
         'x-amz-security-token': session_token,
@@ -763,7 +770,7 @@ async function uploadMediaForVideo(
   const authorization = createSignature(
     'GET', applyUrl, requestHeaders,
     access_key_id, secret_access_key, session_token,
-    '', 'cn-north-1', 'vod'
+    '', provider.vodAwsRegion, 'vod'
   );
 
   logger.info(`申请${label}上传权限: ${applyUrl}`);
@@ -772,10 +779,10 @@ async function uploadMediaForVideo(
     method: 'GET',
     headers: {
       'accept': '*/*',
-      'accept-language': 'zh-CN,zh;q=0.9',
+      'accept-language': provider.acceptLanguage,
       'authorization': authorization,
-      'origin': 'https://jimeng.jianying.com',
-      'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+      'origin': provider.origin,
+      'referer': provider.generateVideoReferer,
       'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
       'x-amz-date': timestamp,
       'x-amz-security-token': session_token,
@@ -824,8 +831,8 @@ async function uploadMediaForVideo(
       'Authorization': auth,
       'Content-CRC32': crc32,
       'Content-Type': 'application/octet-stream',
-      'Origin': 'https://jimeng.jianying.com',
-      'Referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+      'Origin': provider.origin,
+      'Referer': provider.generateVideoReferer,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
     },
     body: buffer,
@@ -862,7 +869,7 @@ async function uploadMediaForVideo(
   const commitAuthorization = createSignature(
     'POST', commitUrl, commitRequestHeaders,
     access_key_id, secret_access_key, session_token,
-    commitPayload, 'cn-north-1', 'vod'
+    commitPayload, provider.vodAwsRegion, 'vod'
   );
 
   logger.info(`提交${label}上传确认: ${commitUrl}`);
@@ -873,8 +880,8 @@ async function uploadMediaForVideo(
       'accept': '*/*',
       'authorization': commitAuthorization,
       'content-type': 'application/json',
-      'origin': 'https://jimeng.jianying.com',
-      'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+      'origin': provider.origin,
+      'referer': provider.generateVideoReferer,
       'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
       'x-amz-date': commitTimestamp,
       'x-amz-security-token': session_token,
@@ -1198,13 +1205,40 @@ export async function generateVideo(
   }
 
   const componentId = util.uuid();
-  const metricsExtra = JSON.stringify({
-    "enterFrom": "click",
-    "isDefaultSeed": 1,
-    "promptSource": "custom",
-    "isRegenerate": false,
-    "originSubmitId": util.uuid(),
-  });
+  const submitId = util.uuid();
+  const metricsExtra = provider.name === "dreamina-intl"
+    ? JSON.stringify({
+        promptSource: "custom",
+        isDefaultSeed: 1,
+        originSubmitId: submitId,
+        isRegenerate: false,
+        enterFrom: "click",
+        position: "page_bottom_box",
+        functionMode: end_frame_image ? "first_last_frames" : "text_to_video",
+        sceneOptions: JSON.stringify([
+          {
+            type: "video",
+            scene: "BasicVideoGenerateButton",
+            resolution,
+            modelReqKey: model,
+            videoDuration: duration,
+            reportParams: {
+              enterSource: "generate",
+              vipSource: "generate",
+              extraVipFunctionKey: `${model}-${resolution}`,
+              useVipFunctionDetailsReporterHoc: true,
+            },
+            materialTypes: [],
+          },
+        ]),
+      })
+    : JSON.stringify({
+        enterFrom: "click",
+        isDefaultSeed: 1,
+        promptSource: "custom",
+        isRegenerate: false,
+        originSubmitId: util.uuid(),
+      });
   
   // 获取当前模型的 draft 版本
   const draftVersion = MODEL_DRAFT_VERSIONS[_model] || DEFAULT_DRAFT_VERSION;
@@ -1214,34 +1248,41 @@ export async function generateVideo(
   const divisor = gcd(width, height);
   const aspectRatio = `${width / divisor}:${height / divisor}`;
   
-  // 构建请求参数
-  const { aigc_data } = await request(
-    "post",
-    "/mweb/v1/aigc_draft/generate",
-    refreshToken,
-    {
-      params: {
-        aigc_features: "app_lip_sync",
-        web_version: "6.6.0",
-        da_version: draftVersion,
-      },
-      data: {
+  const requestBody = {
         "extend": {
           "root_model": end_frame_image ? MODEL_MAP['jimeng-video-3.0'] : model,
-          "m_video_commerce_info": {
-            benefit_type: "basic_video_operation_vgfm_v_three",
-            resource_id: "generate_video",
-            resource_id_type: "str",
-            resource_sub_type: "aigc"
-          },
-          "m_video_commerce_info_list": [{
-            benefit_type: "basic_video_operation_vgfm_v_three",
-            resource_id: "generate_video",
-            resource_id_type: "str",
-            resource_sub_type: "aigc"
-          }]
+          ...(provider.name === "dreamina-intl"
+            ? {
+                m_video_commerce_info: {
+                  benefit_type: "basic_video_operation_vgfm_v_three",
+                  resource_id: "generate_video",
+                  resource_id_type: "str",
+                  resource_sub_type: "aigc"
+                },
+                workspace_id: 0,
+                m_video_commerce_info_list: [{
+                  benefit_type: "basic_video_operation_vgfm_v_three",
+                  resource_id: "generate_video",
+                  resource_id_type: "str",
+                  resource_sub_type: "aigc"
+                }]
+              }
+            : {
+                m_video_commerce_info: {
+                  benefit_type: "basic_video_operation_vgfm_v_three",
+                  resource_id: "generate_video",
+                  resource_id_type: "str",
+                  resource_sub_type: "aigc"
+                },
+                m_video_commerce_info_list: [{
+                  benefit_type: "basic_video_operation_vgfm_v_three",
+                  resource_id: "generate_video",
+                  resource_id_type: "str",
+                  resource_sub_type: "aigc"
+                }]
+              }),
         },
-        "submit_id": util.uuid(),
+        "submit_id": submitId,
         "metrics_extra": metricsExtra,
         "draft_content": JSON.stringify({
           "type": "draft",
@@ -1298,13 +1339,67 @@ export async function generateVideo(
         http_common_info: {
           aid: DEFAULT_ASSISTANT_ID,
         },
-      },
-    }
-  );
+      };
+
+  const deviceTime = util.unixTimestamp();
+  const generateResult = provider.name === "dreamina-intl"
+    ? await browserService.fetch(
+        refreshToken,
+        `${provider.mwebApiBaseUrl}${provider.videoGeneratePath}?${new URLSearchParams({
+          aid: String(provider.assistantId),
+          device_platform: "web",
+          region: provider.region,
+          da_version: "3.3.12",
+          os: "windows",
+          web_component_open_flag: "1",
+          commerce_with_input_video: "1",
+          web_version: "7.5.0",
+          aigc_features: "app_lip_sync",
+          msToken: provider.extraCookies?.msToken || "",
+        }).toString()}`,
+        {
+          method: "POST",
+          headers: {
+            appid: String(provider.assistantId),
+            "app-sdk-version": "48.0.0",
+            appvr: "8.4.0",
+            "device-time": String(deviceTime),
+            sign: createRequestSign(provider.videoGeneratePath, deviceTime),
+            "sign-ver": "1",
+            loc: provider.loc,
+            lan: provider.lan,
+            pf: "7",
+            tdid: "",
+            did: "7623012616730936850",
+            "store-country-code": provider.storeRegionValue,
+            "store-country-code-src": provider.storeRegionSrcValue,
+            Accept: "application/json, text/plain, */*",
+            Referer: `${provider.pageBaseUrl}/`,
+            "accept-language": provider.acceptLanguage,
+          },
+          body: JSON.stringify(requestBody),
+        }
+      )
+    : await request(
+        "post",
+        provider.videoGeneratePath,
+        refreshToken,
+        {
+          params: {
+            aigc_features: "app_lip_sync",
+            web_version: "6.6.0",
+            da_version: draftVersion,
+          },
+          data: requestBody,
+        }
+      );
+  const aigc_data = generateResult?.aigc_data || generateResult?.data?.aigc_data || generateResult?.data || generateResult;
+  logger.info(`国际版视频生成返回: ${JSON.stringify(generateResult).slice(0, 1500)}`);
 
   const historyId = aigc_data.history_record_id;
+  const pollId = submitId;
   if (!historyId)
-    throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "记录ID不存在");
+    throw new APIException(EX.API_IMAGE_GENERATION_FAILED, `记录ID不存在，国际版返回: ${JSON.stringify(generateResult).slice(0, 800)}`);
 
   // 轮询获取结果
   let status = 20, failCode, item_list = [];
@@ -1315,16 +1410,16 @@ export async function generateVideo(
   await new Promise((resolve) => setTimeout(resolve, 5000));
   
   logger.info(`开始轮询视频生成结果，历史ID: ${historyId}，最大重试次数: ${maxRetries}`);
-  logger.info(`即梦官网API地址: https://jimeng.jianying.com/mweb/v1/get_history_by_ids`);
-  logger.info(`视频生成请求已发送，请同时在即梦官网查看: https://jimeng.jianying.com/ai-tool/video/generate`);
+  logger.info(`上游API地址: ${provider.baseUrl}/mweb/v1/get_history_by_ids`);
+  logger.info(`视频生成请求已发送，请同时在上游站点查看: ${provider.generateVideoReferer}`);
   
   while (status === 20 && retryCount < maxRetries) {
     try {
       // 构建请求URL和参数
       const requestUrl = "/mweb/v1/get_history_by_ids";
-      const requestData = {
-        history_ids: [historyId],
-      };
+      const requestData = provider.name === "dreamina-intl"
+        ? { submit_ids: [pollId] }
+        : { history_ids: [historyId] };
       
       // 尝试两种不同的API请求方式
       let result;
@@ -1362,14 +1457,14 @@ export async function generateVideo(
         // 处理标准API返回的数据格式
         historyData = result.history_list[0];
         logger.info(`从标准API获取到历史记录`);
-      } else if (result[historyId]) {
+      } else if (result[provider.name === "dreamina-intl" ? pollId : historyId]) {
         // get_history_by_ids 返回数据以 historyId 为键（如 result["8918159809292"]）
-        historyData = result[historyId];
+        historyData = result[provider.name === "dreamina-intl" ? pollId : historyId];
         logger.info(`从historyId键获取到历史记录`);
       } else {
         // 所有API都没有返回有效数据
         logger.warn(`历史记录不存在，重试中 (${retryCount + 1}/${maxRetries})... 历史ID: ${historyId}`);
-        logger.info(`请同时在即梦官网检查视频是否已生成: https://jimeng.jianying.com/ai-tool/video/generate`);
+        logger.info(`请同时在上游站点检查视频是否已生成: ${provider.generateVideoReferer}`);
 
         retryCount++;
         // 增加重试间隔时间，但设置上限为30秒
@@ -1719,14 +1814,14 @@ export async function generateSeedanceVideo(
   const generateQueryParams = new URLSearchParams({
     aid: String(CORE_ASSISTANT_ID),
     device_platform: "web",
-    region: "cn",
+    region: provider.region,
     webId: String(WEB_ID),
     da_version: draftVersion,
     web_component_open_flag: "1",
     web_version: "7.5.0",
     aigc_features: "app_lip_sync",
   });
-  const generateUrl = `https://jimeng.jianying.com/mweb/v1/aigc_draft/generate?${generateQueryParams.toString()}`;
+  const generateUrl = `${provider.webApiBaseUrl}${provider.videoGeneratePath}?${generateQueryParams.toString()}`;
   const generateBody = {
     extend: {
       root_model: model,
@@ -2512,7 +2607,7 @@ async function _generateVideoWithHistoryId(
   const aspectRatio = `${width / divisor}:${height / divisor}`;
 
   // 提交生成请求
-  const { aigc_data } = await request("post", "/mweb/v1/aigc_draft/generate", refreshToken, {
+  const { aigc_data } = await request("post", provider.videoGeneratePath, refreshToken, {
     params: {
       aigc_features: "app_lip_sync", web_version: "6.6.0", da_version: draftVersion,
     },
@@ -2672,11 +2767,11 @@ async function _generateSeedanceVideoWithHistoryId(
 
   const token = await acquireToken(refreshToken);
   const generateQueryParams = new URLSearchParams({
-    aid: String(CORE_ASSISTANT_ID), device_platform: "web", region: "cn",
+    aid: String(CORE_ASSISTANT_ID), device_platform: "web", region: provider.region,
     webId: String(WEB_ID), da_version: draftVersion, web_component_open_flag: "1",
     web_version: "7.5.0", aigc_features: "app_lip_sync",
   });
-  const generateUrl = `https://jimeng.jianying.com/mweb/v1/aigc_draft/generate?${generateQueryParams.toString()}`;
+  const generateUrl = `${provider.webApiBaseUrl}${provider.videoGeneratePath}?${generateQueryParams.toString()}`;
   const generateBody = {
     extend: {
       root_model: model,
